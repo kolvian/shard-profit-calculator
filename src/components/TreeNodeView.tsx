@@ -9,10 +9,11 @@ interface Props {
   bazaar: Bazaar;
   mode: Mode;
   spikes: Record<string, SpikeInfo>;
+  owned?: Set<string>;
   depth?: number;
 }
 
-export function TreeNodeView({ node, data, bazaar, mode, spikes, depth = 0 }: Props) {
+export function TreeNodeView({ node, data, bazaar, mode, spikes, owned, depth = 0 }: Props) {
   const meta = data.shards[node.id];
   const internalId = meta.internal_id;
   const spike = spikes[internalId];
@@ -36,12 +37,15 @@ export function TreeNodeView({ node, data, bazaar, mode, spikes, depth = 0 }: Pr
                 ⚒ fuse {fusions}×{node.recipe!.outputQuantity > 1 ? ` → ×${node.recipe!.outputQuantity} ea` : ""}
               </span>
             )}
-            {node.method === "buy" && (
-              <span className="pill bg-sky-500/15 text-sky-300">
-                {mode === "instabuy" ? "insta-buy" : "buy order"} @ {coins(node.unitCost)} ={" "}
-                {coins(node.qtyNeeded * node.unitCost)}
-              </span>
-            )}
+            {node.method === "buy" &&
+              (owned?.has(node.id) ? (
+                <span className="pill bg-emerald-500/15 text-emerald-300">▪ your shard (free)</span>
+              ) : (
+                <span className="pill bg-sky-500/15 text-sky-300">
+                  {mode === "instabuy" ? "insta-buy" : "buy order"} @ {coins(node.unitCost)} ={" "}
+                  {coins(node.qtyNeeded * node.unitCost)}
+                </span>
+              ))}
             {node.method === "buy" && isHuntable(node.id, bazaar[internalId]) && (
               <span className="pill bg-emerald-500/10 text-emerald-300/90" title="Obtained by hunting">
                 huntable
@@ -83,6 +87,7 @@ export function TreeNodeView({ node, data, bazaar, mode, spikes, depth = 0 }: Pr
               bazaar={bazaar}
               mode={mode}
               spikes={spikes}
+              owned={owned}
               depth={depth + 1}
             />
           ))}

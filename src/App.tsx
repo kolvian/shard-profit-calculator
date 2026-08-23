@@ -3,14 +3,19 @@ import { useAppData } from "./hooks/useAppData";
 import { ModeToggle } from "./components/ModeToggle";
 import { FusionRow } from "./components/FusionRow";
 import { FusionDetail } from "./components/FusionDetail";
+import { InventoryView } from "./components/InventoryView";
 import { timeAgo } from "./lib/format";
 
 type SortKey = "profit" | "margin";
+type Tab = "browse" | "inventory";
 
 export default function App() {
   const { mode, setMode, penalty, setPenalty, data, bazaar, ranked, spikes, lastUpdated, loading, refreshing, error, refresh } =
     useAppData();
 
+  const [tab, setTab] = useState<Tab>("browse");
+  const [inventory, setInventory] = useState<Record<string, number>>({});
+  const [buyMissing, setBuyMissing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("profit");
   const [search, setSearch] = useState("");
@@ -62,6 +67,24 @@ export default function App() {
         </div>
       </header>
 
+      {/* tabs */}
+      <div className="mb-4 inline-flex rounded-xl border border-white/10 bg-ink-900 p-1">
+        {([
+          ["browse", "Browse fusions"],
+          ["inventory", "My shards"],
+        ] as [Tab, string][]).map(([t, label]) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
+              tab === t ? "bg-accent text-white shadow-glow" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {error && (
         <div className="mb-4 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">
           Failed to load data: {error}. The Hypixel/Coflnet APIs may be temporarily unavailable — try
@@ -71,6 +94,22 @@ export default function App() {
 
       {loading && !ranked ? (
         <LoadingState />
+      ) : tab === "inventory" ? (
+        data && bazaar ? (
+          <InventoryView
+            data={data}
+            bazaar={bazaar}
+            mode={mode}
+            penalty={penalty}
+            spikes={spikes}
+            inventory={inventory}
+            setInventory={setInventory}
+            buyMissing={buyMissing}
+            setBuyMissing={setBuyMissing}
+          />
+        ) : (
+          <LoadingState />
+        )
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_minmax(460px,580px)]">
           {/* list */}

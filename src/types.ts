@@ -76,6 +76,25 @@ export interface FusionProfit {
   buyMovingWeek: number;
 }
 
+// ---- Inventory mode ("fuse what I have") ----
+
+export interface InventoryOpts {
+  owned: Set<string>; // shard ids the player owns (treated as free / sunk cost)
+  allowBuy: boolean; // may we buy non-owned shards to complete fusions?
+}
+
+export interface InventoryResult {
+  target: ShardMeta;
+  recipe: Recipe; // cheapest top-level recipe (owned shards free)
+  perUnitCost: number; // bought-shard cost + fusion fees per output (owned free)
+  sellPerUnit: number; // sell-order value per output
+  perUnitProfit: number;
+  maxUnits: number; // how many you can make, limited by your owned shards
+  totalProfit: number;
+  consumed: { id: string; qty: number }[]; // your shards used up (for maxUnits)
+  buyPerUnit: { id: string; qty: number; cost: number }[]; // shards you'd buy (for maxUnits)
+}
+
 // ---- Price manipulation / spike detection (Coflnet history) ----
 
 export interface SpikeInfo {

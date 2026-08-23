@@ -3,6 +3,8 @@ import type {
   CalcResult,
   FusionData,
   FusionProfit,
+  InventoryOpts,
+  InventoryResult,
   Mode,
   Recipe,
   RecipeChoice,
@@ -20,7 +22,17 @@ import { isDumped } from "./history";
  *    Fusion-only shards return Infinity, forcing the calculator to fuse down to
  *    huntable leaves. This is the rule the user asked for.
  */
-function directCost(id: string, mode: Mode, bazaar: Bazaar, data: FusionData): number {
+function directCost(
+  id: string,
+  mode: Mode,
+  bazaar: Bazaar,
+  data: FusionData,
+  inv?: InventoryOpts,
+): number {
+  if (inv) {
+    if (inv.owned.has(id)) return 0; // already owned → free (sunk cost)
+    if (!inv.allowBuy) return Infinity; // "only my shards": can't acquire others
+  }
   const entry = bazaar[data.shards[id].internal_id];
   if (!entry) return Infinity;
   if (mode === "instabuy") {
@@ -44,6 +56,7 @@ export function computeMinCosts(
   bazaar: Bazaar,
   mode: Mode,
   craftPenalty = 0,
+  inv?: InventoryOpts,
 ): CalcResult {
   const { shards, recipes } = data;
   const ids = Object.keys(shards);
@@ -61,7 +74,7 @@ export function computeMinCosts(
   }
 
   for (const id of ids) {
-    minCosts.set(id, directCost(id, mode, bazaar, data));
+    minCosts.set(id, directCost(id, mode, bazaar, data, inv));
     choices.set(id, { recipe: null });
   }
 
@@ -225,6 +238,74 @@ export function buildTree(
   }
 
   return node(target, targetQty, rootRecipe, new Set());
+}
+
+/**
+ * Given a player's inventory, rank the most profitable shards to fuse it into.
+ * Owned shards are free (sunk cost); revenue is always the sell-order value.
+ * `allowBuy` decides whether non-owned shards may be purchased to complete fusions.
+ * maxUnits is capped by how many your owned shards allow (using the cheapest path).
+ */
+export function rankInventoryFusions(
+  data: FusionData,
+  bazaar: Bazaar,
+  mode: Mode,
+  craftPenalty: number,
+  inventory: Record<string, number>,
+  allowBuy: boolean,
+): { list: InventoryResult[]; calc: CalcResult } {
+  const owned = new Set(Object.keys(inventory).filter((id) => inventory[id] > 0));
+  if (owned.size === 0) return { list: [], calc: { minCosts: new Map(), choices: new Map() } };
+
+  const calc = computeMinCosts(data, bazaar, mode, craftPenalty, { owned, allowBuy });
+  const list: InventoryResult[] = [];
+
+  for (const id in data.shards) {
+    const best = bestRecipeFor(id, data, calc, craftPenalty);
+    if (!best || !isFinite(best.costPerUnit)) continue;
+    const sell = sellValue(id, bazaar, data);
+    if (sell <= 0) continue;
+
+    // leaves needed to make ONE of the target
+    const tree = buildTree(id, best.recipe, data, calc, 1);
+    const leaves = billOfMaterials(tree);
+
+    let usesOwned = false;
+    let limiting = Infinity;
+    const consumed: { id: string; qtyPerUnit: number }[] = [];
+    const buyPerUnit: { id: string; qty: number; cost: number }[] = [];
+
+    for (const [leaf, qtyPerUnit] of leaves) {
+      if (owned.has(leaf)) {
+        usesOwned = true;
+        consumed.push({ id: leaf, qtyPerUnit });
+        limiting = Math.min(limiting, inventory[leaf] / qtyPerUnit);
+      } else {
+        const price = calc.minCosts.get(leaf) ?? Infinity;
+        buyPerUnit.push({ id: leaf, qty: qtyPerUnit, cost: qtyPerUnit * price });
+      }
+    }
+
+    if (!usesOwned) continue; // not made from the player's shards
+    const maxUnits = Math.floor(limiting);
+    if (maxUnits < 1) continue;
+
+    const perUnitProfit = sell - best.costPerUnit;
+    list.push({
+      target: data.shards[id],
+      recipe: best.recipe,
+      perUnitCost: best.costPerUnit,
+      sellPerUnit: sell,
+      perUnitProfit,
+      maxUnits,
+      totalProfit: perUnitProfit * maxUnits,
+      consumed: consumed.map((c) => ({ id: c.id, qty: c.qtyPerUnit * maxUnits })),
+      buyPerUnit: buyPerUnit.map((b) => ({ id: b.id, qty: b.qty * maxUnits, cost: b.cost * maxUnits })),
+    });
+  }
+
+  list.sort((a, b) => b.totalProfit - a.totalProfit);
+  return { list, calc };
 }
 
 /** Total number of fusion operations in a tree (fractional; ceil for display). */

@@ -10,8 +10,23 @@ type SortKey = "profit" | "margin";
 type Tab = "browse" | "inventory";
 
 export default function App() {
-  const { mode, setMode, penalty, setPenalty, data, bazaar, ranked, spikes, lastUpdated, loading, refreshing, error, refresh } =
-    useAppData();
+  const {
+    mode,
+    setMode,
+    penalty,
+    setPenalty,
+    data,
+    bazaar,
+    ranked,
+    spikes,
+    dumped,
+    requestHistory,
+    lastUpdated,
+    loading,
+    refreshing,
+    error,
+    refresh,
+  } = useAppData();
 
   const [tab, setTab] = useState<Tab>("browse");
   const [inventory, setInventory] = useState<Record<string, number>>({});
@@ -30,17 +45,20 @@ export default function App() {
     if (hideUnprofitable) l = l.filter((fp) => fp.craftProfit > 0);
     if (minDemand > 0) l = l.filter((fp) => fp.buyMovingWeek >= minDemand);
     l = [...l].sort((a, b) =>
-      sort === "profit" ? b.craftProfit - a.craftProfit : b.marginPct - a.marginPct,
+      sort === "profit"
+        ? b.craftProfit - a.craftProfit
+        : b.marginPct - a.marginPct,
     );
     return l;
   }, [ranked, search, hideUnprofitable, minDemand, sort]);
 
   const selected = useMemo(
     () =>
-      ranked && selectedId ? ranked.list.find((fp) => fp.target.id === selectedId) ?? null : null,
+      ranked && selectedId
+        ? (ranked.list.find((fp) => fp.target.id === selectedId) ?? null)
+        : null,
     [ranked, selectedId],
   );
-
 
   return (
     <div className="mx-auto min-h-screen max-w-7xl px-3 py-5 sm:px-6">
@@ -69,15 +87,19 @@ export default function App() {
 
       {/* tabs */}
       <div className="mb-4 inline-flex rounded-xl border border-white/10 bg-ink-900 p-1">
-        {([
-          ["browse", "Browse fusions"],
-          ["inventory", "My shards"],
-        ] as [Tab, string][]).map(([t, label]) => (
+        {(
+          [
+            ["browse", "Browse fusions"],
+            ["inventory", "My shards"],
+          ] as [Tab, string][]
+        ).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition ${
-              tab === t ? "bg-accent text-white shadow-glow" : "text-slate-400 hover:text-slate-200"
+              tab === t
+                ? "bg-accent text-white shadow-glow"
+                : "text-slate-400 hover:text-slate-200"
             }`}
           >
             {label}
@@ -87,8 +109,8 @@ export default function App() {
 
       {error && (
         <div className="mb-4 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">
-          Failed to load data: {error}. The Hypixel/Coflnet APIs may be temporarily unavailable — try
-          Refresh.
+          Failed to load data: {error}. The Hypixel/Coflnet APIs may be
+          temporarily unavailable — try Refresh.
         </div>
       )}
 
@@ -102,6 +124,7 @@ export default function App() {
             mode={mode}
             penalty={penalty}
             spikes={spikes}
+            dumped={dumped}
             inventory={inventory}
             setInventory={setInventory}
             buyMissing={buyMissing}
@@ -128,7 +151,9 @@ export default function App() {
                     key={k}
                     onClick={() => setSort(k)}
                     className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition ${
-                      sort === k ? "bg-accent text-white" : "text-slate-400 hover:text-slate-200"
+                      sort === k
+                        ? "bg-accent text-white"
+                        : "text-slate-400 hover:text-slate-200"
                     }`}
                   >
                     {k}
@@ -165,7 +190,9 @@ export default function App() {
                   min={0}
                   step={1000}
                   value={penalty}
-                  onChange={(e) => setPenalty(Math.max(0, Number(e.target.value) || 0))}
+                  onChange={(e) =>
+                    setPenalty(Math.max(0, Number(e.target.value) || 0))
+                  }
                   className="num w-24 rounded-lg border border-white/10 bg-ink-950 px-2 py-1 text-right text-slate-100 focus:border-accent/50 focus:outline-none"
                 />
               </label>
@@ -191,7 +218,11 @@ export default function App() {
                     rank={i + 1}
                     selected={fp.target.id === selectedId}
                     spike={spikes[fp.target.internal_id]}
-                    onSelect={() => setSelectedId(fp.target.id)}
+                    requestHistory={requestHistory}
+                    onSelect={() => {
+                      requestHistory([fp.target.internal_id], 0);
+                      setSelectedId(fp.target.id);
+                    }}
                   />
                 ))}
               {filtered.length === 0 && (
@@ -215,12 +246,15 @@ export default function App() {
             <div className="card h-full overflow-hidden lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
               {selected && data && bazaar && ranked ? (
                 <FusionDetail
+                  key={`${selected.target.id}:${selected.outputQuantity}`}
                   fp={selected}
                   data={data}
                   bazaar={bazaar}
                   calc={ranked.calc}
                   mode={mode}
                   penalty={penalty}
+                  spikes={spikes}
+                  requestHistory={requestHistory}
                   onClose={() => setSelectedId(null)}
                 />
               ) : (
@@ -239,8 +273,8 @@ function Placeholder() {
     <div className="flex h-full flex-col items-center justify-center p-8 text-center">
       <div className="mb-3 text-4xl text-slate-700">◆</div>
       <p className="text-sm text-slate-500">
-        Select a fusion to see the cheapest way to make it — shard icons, buy methods, and 6h
-        price-spike warnings.
+        Select a fusion to see the cheapest way to make it — shard icons, buy
+        methods, and 7-day price-spike warnings.
       </p>
     </div>
   );
@@ -250,7 +284,10 @@ function LoadingState() {
   return (
     <div className="flex flex-col gap-1.5">
       {Array.from({ length: 10 }).map((_, i) => (
-        <div key={i} className="h-16 animate-pulse rounded-xl border border-white/5 bg-ink-850/50" />
+        <div
+          key={i}
+          className="h-16 animate-pulse rounded-xl border border-white/5 bg-ink-850/50"
+        />
       ))}
     </div>
   );
@@ -260,20 +297,24 @@ function FooterNote({ lastUpdated }: { lastUpdated: number | null }) {
   return (
     <div className="mt-5 space-y-1.5 border-t border-white/5 pt-4 text-xs text-slate-600">
       <p>
-        Bazaar updated {lastUpdated ? timeAgo(lastUpdated) : "…"} · auto-refresh 60s. Prices from the
-        Hypixel API; 6h spike check via Coflnet history. Fusion recipes from the community SkyShards
-        dataset.
+        Bazaar updated {lastUpdated ? timeAgo(lastUpdated) : "…"} · auto-refresh
+        60s. Prices from the Hypixel API; 7-day spike check via Coflnet history.
+        Fusion recipes from the community SkyShards dataset.
       </p>
       <p>
-        <span className="text-slate-500">Insta-buy</span> prices every ingredient at its bazaar buy
-        price. <span className="text-slate-500">Buy order</span> only buys huntable (basic) shards —
-        fusion-only shards are decomposed to huntable leaves, since fuseable shards aren&apos;t
-        realistic to buy-order. Revenue always assumes selling the output via a{" "}
-        <span className="text-slate-500">sell order</span>. List profit is per single fusion craft;
-        open a fusion to set a target quantity and see the full bill of materials. ⚠ flags shards
-        pumped ≥30% above their recent (7-day) median; in buy-order mode, inputs whose price has
-        crashed ≥50% below their median are excluded as manipulated (their buy-order cost is unreal).
-        Huntable shards also require 7d insta-sell volume ≥50% of insta-buy volume.
+        <span className="text-slate-500">Insta-buy</span> prices every
+        ingredient at its bazaar buy price.{" "}
+        <span className="text-slate-500">Buy order</span> only buys huntable
+        (basic) shards — fusion-only shards are decomposed to huntable leaves,
+        since fuseable shards aren&apos;t realistic to buy-order. Revenue always
+        assumes selling the output via a{" "}
+        <span className="text-slate-500">sell order</span>. List profit is per
+        single fusion craft; open a fusion to set a target quantity and see the
+        full bill of materials. ⚠ flags shards pumped ≥30% above their recent
+        (7-day) median; in buy-order mode, inputs whose price has crashed ≥50%
+        below their median are excluded as manipulated (their buy-order cost is
+        unreal). Huntable shards also require 7d insta-sell volume ≥50% of
+        insta-buy volume.
       </p>
     </div>
   );

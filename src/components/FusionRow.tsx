@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import type { FusionData, FusionProfit, SpikeInfo } from "../types";
-import { ShardIcon, RARITY_TEXT } from "./ShardIcon";
+import { ShardIcon } from "./ShardIcon";
+import { RARITY_TEXT } from "../lib/rarity";
 import { coins, pct, perWeek } from "../lib/format";
 
 interface Props {
@@ -9,16 +11,40 @@ interface Props {
   selected: boolean;
   spike?: SpikeInfo;
   onSelect: () => void;
+  requestHistory: (ids: string[], priority?: number) => void;
 }
 
-export function FusionRow({ fp, data, rank, selected, spike, onSelect }: Props) {
+export function FusionRow({
+  fp,
+  data,
+  rank,
+  selected,
+  spike,
+  onSelect,
+  requestHistory,
+}: Props) {
   const t = fp.target;
+  const row = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!row.current) return;
+    if (typeof IntersectionObserver === "undefined") {
+      requestHistory([t.internal_id], 2);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting))
+        requestHistory([t.internal_id], 2);
+    });
+    observer.observe(row.current);
+    return () => observer.disconnect();
+  }, [t.internal_id, requestHistory]);
   const [a, b] = fp.recipe.inputs;
   const profitColor = fp.craftProfit >= 0 ? "text-gain" : "text-loss";
   const manipulated = spike?.status === "spike";
 
   return (
     <button
+      ref={row}
       onClick={onSelect}
       className={`group grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition sm:grid-cols-[28px_minmax(0,1.6fr)_minmax(0,1fr)_repeat(3,minmax(0,0.9fr))] ${
         selected
@@ -27,16 +53,35 @@ export function FusionRow({ fp, data, rank, selected, spike, onSelect }: Props) 
       }`}
     >
       {/* rank */}
-      <span className="hidden text-right text-xs font-semibold text-slate-500 sm:block">{rank}</span>
+      <span className="hidden text-right text-xs font-semibold text-slate-500 sm:block">
+        {rank}
+      </span>
 
       {/* target */}
       <div className="flex min-w-0 items-center gap-2.5">
         <ShardIcon id={t.id} rarity={t.rarity} size={38} />
         <div className="min-w-0">
-          <div className={`flex items-center gap-1.5 truncate font-semibold ${RARITY_TEXT[t.rarity]}`}>
+          <div
+            className={`flex items-center gap-1.5 truncate font-semibold ${RARITY_TEXT[t.rarity]}`}
+          >
             <span className="truncate">{t.name}</span>
             {fp.outputQuantity > 1 && (
-              <span className="text-xs font-normal text-slate-500">×{fp.outputQuantity}</span>
+              <span className="text-xs font-normal text-slate-500">
+                ×{fp.outputQuantity}
+              </span>
+            )}
+            {(!spike || spike.status === "loading") && (
+              <span className="text-[10px] font-normal text-slate-500">
+                checking…
+              </span>
+            )}
+            {(spike?.status === "error" || spike?.status === "nodata") && (
+              <span
+                className="text-[10px] font-normal text-slate-500"
+                title="Price history unavailable; manipulation could not be checked"
+              >
+                unavailable
+              </span>
             )}
             {manipulated && (
               <span
@@ -47,7 +92,9 @@ export function FusionRow({ fp, data, rank, selected, spike, onSelect }: Props) 
               </span>
             )}
           </div>
-          <div className="truncate text-xs text-slate-500">{t.family.replace(" Family", "")}</div>
+          <div className="truncate text-xs text-slate-500">
+            {t.family.replace(" Family", "")}
+          </div>
         </div>
       </div>
 
@@ -61,18 +108,26 @@ export function FusionRow({ fp, data, rank, selected, spike, onSelect }: Props) 
       {/* cost */}
       <div className="hidden text-right sm:block">
         <div className="num text-sm text-slate-300">{coins(fp.craftCost)}</div>
-        <div className="text-[10px] uppercase tracking-wide text-slate-600">cost</div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-600">
+          cost
+        </div>
       </div>
 
       {/* profit (always visible) */}
       <div className="text-right sm:order-none">
-        <div className={`num text-sm font-semibold ${profitColor}`}>{coins(fp.craftProfit)}</div>
-        <div className="text-[10px] uppercase tracking-wide text-slate-600">profit</div>
+        <div className={`num text-sm font-semibold ${profitColor}`}>
+          {coins(fp.craftProfit)}
+        </div>
+        <div className="text-[10px] uppercase tracking-wide text-slate-600">
+          profit
+        </div>
       </div>
 
       {/* margin */}
       <div className="hidden text-right sm:block">
-        <div className={`num text-sm font-medium ${profitColor}`}>{pct(fp.marginPct)}</div>
+        <div className={`num text-sm font-medium ${profitColor}`}>
+          {pct(fp.marginPct)}
+        </div>
         <div className="text-[10px] uppercase tracking-wide text-slate-600">
           {perWeek(fp.sellMovingWeek)}
         </div>

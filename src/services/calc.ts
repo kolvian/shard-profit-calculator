@@ -11,7 +11,6 @@ import type {
   TreeNode,
 } from "../types";
 import { isHuntable } from "./data";
-import { isDumped } from "./history";
 
 /**
  * Cost to acquire ONE of a shard *directly* (no fusion), under the chosen mode.
@@ -28,6 +27,7 @@ function directCost(
   bazaar: Bazaar,
   data: FusionData,
   inv?: InventoryOpts,
+  dumped: ReadonlySet<string> = new Set(),
 ): number {
   if (inv) {
     if (inv.owned.has(id)) return 0; // already owned → free (sunk cost)
@@ -42,7 +42,7 @@ function directCost(
   if (!isHuntable(id, entry)) return Infinity;
   // exclude shards whose buy-order price is manipulated low (crashed) — buying
   // them would understate the real cost. Forces fusion / marks infeasible.
-  if (isDumped(data.shards[id].internal_id)) return Infinity;
+  if (dumped.has(data.shards[id].internal_id)) return Infinity;
   return entry.sellPrice > 0 ? entry.sellPrice : Infinity;
 }
 
@@ -57,6 +57,7 @@ export function computeMinCosts(
   mode: Mode,
   craftPenalty = 0,
   inv?: InventoryOpts,
+  dumped: ReadonlySet<string> = new Set(),
 ): CalcResult {
   const { shards, recipes } = data;
   const ids = Object.keys(shards);
@@ -74,7 +75,7 @@ export function computeMinCosts(
   }
 
   for (const id of ids) {
-    minCosts.set(id, directCost(id, mode, bazaar, data, inv));
+    minCosts.set(id, directCost(id, mode, bazaar, data, inv, dumped));
     choices.set(id, { recipe: null });
   }
 
@@ -135,7 +136,8 @@ export function bestRecipeFor(
     const f1 = shards[r.inputs[0]].fuse_amount;
     const f2 = shards[r.inputs[1]].fuse_amount;
     const costPerUnit = (c1 * f1 + c2 * f2 + craftPenalty) / r.outputQuantity;
-    if (!best || costPerUnit < best.costPerUnit) best = { recipe: r, costPerUnit };
+    if (!best || costPerUnit < best.costPerUnit)
+      best = { recipe: r, costPerUnit };
   }
   return best;
 }
@@ -145,7 +147,11 @@ export function bestRecipeFor(
  * Always uses the sell-order price (≈ lowest sell offer = bazaar buyPrice),
  * regardless of acquisition mode — you list the fused output and let it fill.
  */
-export function sellValue(id: string, bazaar: Bazaar, data: FusionData): number {
+export function sellValue(
+  id: string,
+  bazaar: Bazaar,
+  data: FusionData,
+): number {
   const entry = bazaar[data.shards[id].internal_id];
   if (!entry) return 0;
   return entry.buyPrice;
@@ -157,8 +163,16 @@ export function rankFusionsFull(
   bazaar: Bazaar,
   mode: Mode,
   craftPenalty = 0,
+  dumped: ReadonlySet<string> = new Set(),
 ): { list: FusionProfit[]; calc: CalcResult } {
-  const calc = computeMinCosts(data, bazaar, mode, craftPenalty);
+  const calc = computeMinCosts(
+    data,
+    bazaar,
+    mode,
+    craftPenalty,
+    undefined,
+    dumped,
+  );
   const list: FusionProfit[] = [];
 
   for (const id in data.shards) {
@@ -206,7 +220,12 @@ export function buildTree(
 ): TreeNode {
   const { shards } = data;
 
-  function node(id: string, qtyNeeded: number, forced: Recipe | null, visited: Set<string>): TreeNode {
+  function node(
+    id: string,
+    qtyNeeded: number,
+    forced: Recipe | null,
+    visited: Set<string>,
+  ): TreeNode {
     const unitCost = calc.minCosts.get(id)!;
     const choice = forced ? { recipe: forced } : calc.choices.get(id)!;
 
@@ -253,11 +272,22 @@ export function rankInventoryFusions(
   craftPenalty: number,
   inventory: Record<string, number>,
   allowBuy: boolean,
+  dumped: ReadonlySet<string> = new Set(),
 ): { list: InventoryResult[]; calc: CalcResult } {
-  const owned = new Set(Object.keys(inventory).filter((id) => inventory[id] > 0));
-  if (owned.size === 0) return { list: [], calc: { minCosts: new Map(), choices: new Map() } };
+  const owned = new Set(
+    Object.keys(inventory).filter((id) => inventory[id] > 0),
+  );
+  if (owned.size === 0)
+    return { list: [], calc: { minCosts: new Map(), choices: new Map() } };
 
-  const calc = computeMinCosts(data, bazaar, mode, craftPenalty, { owned, allowBuy });
+  const calc = computeMinCosts(
+    data,
+    bazaar,
+    mode,
+    craftPenalty,
+    { owned, allowBuy },
+    dumped,
+  );
   const list: InventoryResult[] = [];
 
   for (const id in data.shards) {
@@ -282,7 +312,11 @@ export function rankInventoryFusions(
         limiting = Math.min(limiting, inventory[leaf] / qtyPerUnit);
       } else {
         const price = calc.minCosts.get(leaf) ?? Infinity;
-        buyPerUnit.push({ id: leaf, qty: qtyPerUnit, cost: qtyPerUnit * price });
+        buyPerUnit.push({
+          id: leaf,
+          qty: qtyPerUnit,
+          cost: qtyPerUnit * price,
+        });
       }
     }
 
@@ -299,8 +333,15 @@ export function rankInventoryFusions(
       perUnitProfit,
       maxUnits,
       totalProfit: perUnitProfit * maxUnits,
-      consumed: consumed.map((c) => ({ id: c.id, qty: c.qtyPerUnit * maxUnits })),
-      buyPerUnit: buyPerUnit.map((b) => ({ id: b.id, qty: b.qty * maxUnits, cost: b.cost * maxUnits })),
+      consumed: consumed.map((c) => ({
+        id: c.id,
+        qty: c.qtyPerUnit * maxUnits,
+      })),
+      buyPerUnit: buyPerUnit.map((b) => ({
+        id: b.id,
+        qty: b.qty * maxUnits,
+        cost: b.cost * maxUnits,
+      })),
     });
   }
 
@@ -316,7 +357,10 @@ export function countFusions(node: TreeNode): number {
 }
 
 /** Flatten a tree into the total base shards you actually BUY (id -> total qty). */
-export function billOfMaterials(node: TreeNode, acc = new Map<string, number>()): Map<string, number> {
+export function billOfMaterials(
+  node: TreeNode,
+  acc = new Map<string, number>(),
+): Map<string, number> {
   if (node.method !== "fuse") {
     acc.set(node.id, (acc.get(node.id) ?? 0) + node.qtyNeeded);
   }

@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Bazaar, CalcResult, FusionData, FusionProfit, Mode, TreeNode } from "../types";
+import type {
+  Bazaar,
+  CalcResult,
+  FusionData,
+  FusionProfit,
+  Mode,
+  SpikeInfo,
+  TreeNode,
+} from "../types";
 import { buildTree, billOfMaterials, countFusions } from "../services/calc";
-import { ShardIcon, RARITY_TEXT } from "./ShardIcon";
+import { ShardIcon } from "./ShardIcon";
+import { RARITY_TEXT } from "../lib/rarity";
 import { TreeNodeView } from "./TreeNodeView";
-import { useSpikes } from "../hooks/useSpikes";
 import { isHuntable } from "../services/data";
 import { coins, coinsFull, pct, perWeek } from "../lib/format";
 
@@ -15,6 +23,8 @@ interface Props {
   mode: Mode;
   penalty: number;
   onClose: () => void;
+  spikes: Record<string, SpikeInfo>;
+  requestHistory: (ids: string[], priority?: number) => void;
 }
 
 function collectIds(node: TreeNode, acc = new Set<string>()): Set<string> {
@@ -23,12 +33,19 @@ function collectIds(node: TreeNode, acc = new Set<string>()): Set<string> {
   return acc;
 }
 
-export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }: Props) {
+export function FusionDetail({
+  fp,
+  data,
+  bazaar,
+  calc,
+  mode,
+  penalty,
+  onClose,
+  spikes,
+  requestHistory,
+}: Props) {
   const t = fp.target;
   const [qty, setQty] = useState(fp.outputQuantity);
-
-  // reset desired quantity when a different fusion is opened
-  useEffect(() => setQty(fp.outputQuantity), [t.id, fp.outputQuantity]);
 
   const tree = useMemo(
     () => buildTree(t.id, fp.recipe, data, calc, qty),
@@ -51,7 +68,10 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
     return [...ids].map((id) => data.shards[id].internal_id);
   }, [tree, t.id, data]);
 
-  const spikes = useSpikes(internalIds, bazaar);
+  useEffect(() => {
+    requestHistory([t.internal_id], 0);
+    requestHistory(internalIds, 1);
+  }, [t.internal_id, internalIds, requestHistory]);
   const targetSpike = spikes[t.internal_id];
 
   const [a, b] = fp.recipe.inputs;
@@ -69,7 +89,9 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
       <div className="flex items-start gap-3 border-b border-white/5 p-4">
         <ShardIcon id={t.id} rarity={t.rarity} size={58} />
         <div className="min-w-0 flex-1">
-          <div className={`text-xl font-bold ${RARITY_TEXT[t.rarity]}`}>{t.name}</div>
+          <div className={`text-xl font-bold ${RARITY_TEXT[t.rarity]}`}>
+            {t.name}
+          </div>
           <div className="text-xs text-slate-500">
             {t.rarity} · {t.family.replace(" Family", "")} · {t.internal_id}
           </div>
@@ -85,14 +107,18 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {/* quantity selector */}
         <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-ink-900/60 px-3 py-2.5">
-          <span className="text-sm font-medium text-slate-300">Quantity wanted</span>
+          <span className="text-sm font-medium text-slate-300">
+            Quantity wanted
+          </span>
           <div className="flex items-center gap-1.5">
             <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
             <input
               type="number"
               min={1}
               value={qty}
-              onChange={(e) => setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+              onChange={(e) =>
+                setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))
+              }
               className="num w-20 rounded-lg border border-white/10 bg-ink-950 px-2 py-1.5 text-center text-sm text-slate-100 focus:border-accent/50 focus:outline-none"
             />
             <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
@@ -108,15 +134,28 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
 
         {/* summary cards (scaled to quantity) */}
         <div className="grid grid-cols-2 gap-2">
-          <Stat label="Total cost" value={coins(totalCost)} sub={`${coinsFull(totalCost)} coins`} />
-          <Stat label="Net revenue" value={coins(totalRevenue)} sub={`${coinsFull(totalRevenue)} coins`} />
+          <Stat
+            label="Total cost"
+            value={coins(totalCost)}
+            sub={`${coinsFull(totalCost)} coins`}
+          />
+          <Stat
+            label="Net revenue"
+            value={coins(totalRevenue)}
+            sub={`${coinsFull(totalRevenue)} coins`}
+          />
           <Stat
             label="Total profit"
             value={coins(totalProfit)}
             valueClass={profitColor}
             sub={`${coinsFull(totalProfit)} coins`}
           />
-          <Stat label="Margin" value={pct(fp.marginPct)} valueClass={profitColor} sub={`for ×${qty}`} />
+          <Stat
+            label="Margin"
+            value={pct(fp.marginPct)}
+            valueClass={profitColor}
+            sub={`for ×${qty}`}
+          />
         </div>
 
         {/* final fusion recipe */}
@@ -130,17 +169,23 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
 
         {/* economics note */}
         <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-          <span className="pill bg-white/5">sell @ sell order · {coins(fp.sellPerUnit)}/ea</span>
+          <span className="pill bg-white/5">
+            sell @ sell order · {coins(fp.sellPerUnit)}/ea
+          </span>
           <span className="pill bg-white/5">
             ⚒ ~{Math.ceil(totalFusions)} fusions
             {penalty > 0 ? ` · fees ${coins(fees)}` : ""}
           </span>
-          <span className="pill bg-white/5">demand {perWeek(fp.buyMovingWeek)}</span>
-          <span className="pill bg-white/5">supply {perWeek(fp.sellMovingWeek)}</span>
+          <span className="pill bg-white/5">
+            demand {perWeek(fp.buyMovingWeek)}
+          </span>
+          <span className="pill bg-white/5">
+            supply {perWeek(fp.sellMovingWeek)}
+          </span>
           {targetSpike?.status === "spike" && (
             <span className="pill bg-warn/15 text-warn">
-              ⚠ output pumped {pct(targetSpike.changePct! * 100)} vs recent median — profit may be
-              unreal
+              ⚠ output pumped {pct(targetSpike.changePct! * 100)} vs recent
+              median — profit may be unreal
             </span>
           )}
         </div>
@@ -149,9 +194,12 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
         <div className="mt-5">
           <div className="mb-1.5 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-300">
-              Total ingredients <span className="text-slate-500">(for ×{qty})</span>
+              Total ingredients{" "}
+              <span className="text-slate-500">(for ×{qty})</span>
             </h3>
-            <span className="text-xs text-slate-500">{bom.length} base shards</span>
+            <span className="text-xs text-slate-500">
+              {bom.length} base shards
+            </span>
           </div>
           <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {bom.map((it) => {
@@ -164,10 +212,14 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
                 >
                   <ShardIcon id={it.id} rarity={m.rarity} size={30} />
                   <div className="min-w-0 flex-1">
-                    <div className={`flex items-center gap-1 truncate text-sm font-medium ${RARITY_TEXT[m.rarity]}`}>
+                    <div
+                      className={`flex items-center gap-1 truncate text-sm font-medium ${RARITY_TEXT[m.rarity]}`}
+                    >
                       {m.name}
                       {isHuntable(it.id, bazaar[m.internal_id]) && (
-                        <span className="text-[10px] text-emerald-400/70">⛏</span>
+                        <span className="text-[10px] text-emerald-400/70">
+                          ⛏
+                        </span>
                       )}
                       {sp?.status === "spike" && (
                         <span
@@ -178,7 +230,9 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
                         </span>
                       )}
                     </div>
-                    <div className="num text-[11px] text-slate-500">{coins(it.qty * it.unitCost)}</div>
+                    <div className="num text-[11px] text-slate-500">
+                      {coins(it.qty * it.unitCost)}
+                    </div>
                   </div>
                   <span className="num shrink-0 text-sm font-semibold text-slate-300">
                     ×{Math.ceil(it.qty)}
@@ -192,13 +246,23 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
         {/* fusion tree */}
         <div className="mt-5">
           <div className="mb-1 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-300">Cheapest fusion path</h3>
+            <h3 className="text-sm font-semibold text-slate-300">
+              Cheapest fusion path
+            </h3>
             <span className="text-xs text-slate-500">
-              {mode === "instabuy" ? "buy any shard instantly" : "buy huntable shards only, fuse the rest"}
+              {mode === "instabuy"
+                ? "buy any shard instantly"
+                : "buy huntable shards only, fuse the rest"}
             </span>
           </div>
           <div className="rounded-xl border border-white/5 bg-ink-900/40 p-3">
-            <TreeNodeView node={tree} data={data} bazaar={bazaar} mode={mode} spikes={spikes} />
+            <TreeNodeView
+              node={tree}
+              data={data}
+              bazaar={bazaar}
+              mode={mode}
+              spikes={spikes}
+            />
           </div>
         </div>
       </div>
@@ -206,7 +270,13 @@ export function FusionDetail({ fp, data, bazaar, calc, mode, penalty, onClose }:
   );
 }
 
-function QtyBtn({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+function QtyBtn({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -230,14 +300,24 @@ function Stat({
 }) {
   return (
     <div className="rounded-xl border border-white/5 bg-ink-900/60 px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">
+        {label}
+      </div>
       <div className={`num text-lg font-bold ${valueClass}`}>{value}</div>
       {sub && <div className="num text-[11px] text-slate-600">{sub}</div>}
     </div>
   );
 }
 
-function Ingredient({ id, qty, data }: { id: string; qty: number; data: FusionData }) {
+function Ingredient({
+  id,
+  qty,
+  data,
+}: {
+  id: string;
+  qty: number;
+  data: FusionData;
+}) {
   const m = data.shards[id];
   return (
     <div className="flex flex-col items-center gap-1">

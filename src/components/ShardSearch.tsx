@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { FusionData } from "../types";
-import { ShardIcon, RARITY_TEXT } from "./ShardIcon";
+import { ShardIcon } from "./ShardIcon";
+import { RARITY_TEXT } from "../lib/rarity";
 
 interface Props {
   data: FusionData;
@@ -9,7 +10,12 @@ interface Props {
   placeholder?: string;
 }
 
-export function ShardSearch({ data, exclude, onPick, placeholder = "Add a shard you own…" }: Props) {
+export function ShardSearch({
+  data,
+  exclude,
+  onPick,
+  placeholder = "Add a shard you own…",
+}: Props) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
 
@@ -23,7 +29,9 @@ export function ShardSearch({ data, exclude, onPick, placeholder = "Add a shard 
     const query = q.trim().toLowerCase();
     if (!query) return [];
     return all
-      .filter((s) => s.name.toLowerCase().includes(query) && !exclude?.has(s.id))
+      .filter(
+        (s) => s.name.toLowerCase().includes(query) && !exclude?.has(s.id),
+      )
       .slice(0, 8);
   }, [q, all, exclude]);
 
@@ -59,8 +67,12 @@ export function ShardSearch({ data, exclude, onPick, placeholder = "Add a shard 
               className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-white/5"
             >
               <ShardIcon id={s.id} rarity={s.rarity} size={26} />
-              <span className={`text-sm font-medium ${RARITY_TEXT[s.rarity]}`}>{s.name}</span>
-              <span className="ml-auto text-xs text-slate-600">{s.family.replace(" Family", "")}</span>
+              <span className={`text-sm font-medium ${RARITY_TEXT[s.rarity]}`}>
+                {s.name}
+              </span>
+              <span className="ml-auto text-xs text-slate-600">
+                {s.family.replace(" Family", "")}
+              </span>
             </button>
           ))}
         </div>

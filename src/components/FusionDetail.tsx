@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import type {
   Bazaar,
   CalcResult,
@@ -7,6 +7,7 @@ import type {
   Mode,
   SpikeInfo,
   TreeNode,
+  PinnedFusion,
 } from "../types";
 import { buildTree, billOfMaterials, countFusions } from "../services/calc";
 import { ShardIcon } from "./ShardIcon";
@@ -15,7 +16,14 @@ import { TreeNodeView } from "./TreeNodeView";
 import { isHuntable } from "../services/data";
 import { coins, coinsFull, pct, perWeek } from "../lib/format";
 
+import { QuantityInput } from "./QuantityInput";
+import { quantityValue, snapshotPin } from "../services/pins";
+
 interface Props {
+  quantity: string;
+  setQuantity: (value: string) => void;
+  onPin: (pin: PinnedFusion) => void;
+  pinned: boolean;
   fp: FusionProfit;
   data: FusionData;
   bazaar: Bazaar;
@@ -35,6 +43,10 @@ function collectIds(node: TreeNode, acc = new Set<string>()): Set<string> {
 
 export function FusionDetail({
   fp,
+  quantity,
+  setQuantity,
+  onPin,
+  pinned,
   data,
   bazaar,
   calc,
@@ -45,7 +57,7 @@ export function FusionDetail({
   requestHistory,
 }: Props) {
   const t = fp.target;
-  const [qty, setQty] = useState(fp.outputQuantity);
+  const qty = quantityValue(quantity);
 
   const tree = useMemo(
     () => buildTree(t.id, fp.recipe, data, calc, qty),
@@ -53,11 +65,13 @@ export function FusionDetail({
   );
 
   const bom = useMemo(() => {
-    const entries = [...billOfMaterials(tree).entries()].map(([id, q]) => ({
-      id,
-      qty: q,
-      unitCost: calc.minCosts.get(id) ?? Infinity,
-    }));
+    const entries = [...billOfMaterials(tree).entries()]
+      .filter(([, q]) => q > 0)
+      .map(([id, q]) => ({
+        id,
+        qty: q,
+        unitCost: calc.minCosts.get(id) ?? Infinity,
+      }));
     entries.sort((a, b) => b.qty * b.unitCost - a.qty * a.unitCost);
     return entries;
   }, [tree, calc]);
@@ -75,8 +89,8 @@ export function FusionDetail({
   const targetSpike = spikes[t.internal_id];
 
   const [a, b] = fp.recipe.inputs;
-  const totalCost = fp.fusionCostPerUnit * qty;
-  const totalRevenue = fp.sellPerUnit * qty;
+  const totalCost = qty === 0 ? 0 : fp.fusionCostPerUnit * qty;
+  const totalRevenue = qty === 0 ? 0 : fp.sellPerUnit * qty;
   const totalProfit = totalRevenue - totalCost;
   const profitColor = totalProfit >= 0 ? "text-gain" : "text-loss";
 
@@ -97,6 +111,7 @@ export function FusionDetail({
           </div>
         </div>
         <button
+          aria-label="Close fusion detail"
           onClick={onClose}
           className="rounded-lg px-2 py-1 text-slate-500 hover:bg-white/5 hover:text-slate-200"
         >
@@ -110,28 +125,20 @@ export function FusionDetail({
           <span className="text-sm font-medium text-slate-300">
             Quantity wanted
           </span>
-          <div className="flex items-center gap-1.5">
-            <QtyBtn onClick={() => setQty((q) => Math.max(1, q - 1))}>−</QtyBtn>
-            <input
-              type="number"
-              min={1}
-              value={qty}
-              onChange={(e) =>
-                setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))
-              }
-              className="num w-20 rounded-lg border border-white/10 bg-ink-950 px-2 py-1.5 text-center text-sm text-slate-100 focus:border-accent/50 focus:outline-none"
-            />
-            <QtyBtn onClick={() => setQty((q) => q + 1)}>+</QtyBtn>
-            <button
-              onClick={() => setQty(fp.outputQuantity)}
-              className="ml-1 rounded-lg px-2 py-1.5 text-xs text-slate-500 hover:text-slate-300"
-              title="Reset to one fusion"
-            >
-              ×{fp.outputQuantity}
-            </button>
-          </div>
+          <QuantityInput
+            value={quantity}
+            onChange={setQuantity}
+            reset={fp.outputQuantity}
+          />
         </div>
 
+        <button
+          disabled={qty <= 0}
+          onClick={() => onPin(snapshotPin(tree, quantity, mode, penalty))}
+          className="mb-3 w-full rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          {pinned ? "Update pin" : "Pin tree"}
+        </button>
         {/* summary cards (scaled to quantity) */}
         <div className="grid grid-cols-2 gap-2">
           <Stat
@@ -152,7 +159,7 @@ export function FusionDetail({
           />
           <Stat
             label="Margin"
-            value={pct(fp.marginPct)}
+            value={pct(qty === 0 ? 0 : fp.marginPct)}
             valueClass={profitColor}
             sub={`for ×${qty}`}
           />
@@ -256,34 +263,23 @@ export function FusionDetail({
             </span>
           </div>
           <div className="rounded-xl border border-white/5 bg-ink-900/40 p-3">
-            <TreeNodeView
-              node={tree}
-              data={data}
-              bazaar={bazaar}
-              mode={mode}
-              spikes={spikes}
-            />
+            {qty === 0 ? (
+              <p className="text-sm text-slate-500">
+                Enter a quantity to see ingredient requirements.
+              </p>
+            ) : (
+              <TreeNodeView
+                node={tree}
+                data={data}
+                bazaar={bazaar}
+                mode={mode}
+                spikes={spikes}
+              />
+            )}
           </div>
         </div>
       </div>
     </div>
-  );
-}
-
-function QtyBtn({
-  children,
-  onClick,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="h-8 w-8 rounded-lg border border-white/10 bg-ink-950 text-slate-300 hover:bg-ink-800"
-    >
-      {children}
-    </button>
   );
 }
 

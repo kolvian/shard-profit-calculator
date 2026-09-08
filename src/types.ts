@@ -109,3 +109,19 @@ export interface SpikeInfo {
   sellBaseline?: number;
   sellCurrent?: number;
 }
+
+// Saved quantities are per output unit, so editing a pin never replans its path.
+export interface PinnedNode {
+  id: string;
+  quantityPerUnit: number;
+  recipe?: Recipe;
+  children?: [PinnedNode, PinnedNode];
+}
+export interface PinnedFusion {
+  id: string;
+  shardId: string;
+  quantityInput: string;
+  mode: Mode;
+  penalty: number;
+  tree: PinnedNode;
+}

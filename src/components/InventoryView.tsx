@@ -63,7 +63,7 @@ export function InventoryView({
   const ownedIds = [...owned];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+    <div className="grid gap-4">
       {/* inventory editor */}
       <aside className="space-y-3">
         <div className="card p-3">

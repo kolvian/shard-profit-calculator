@@ -1,9 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppData } from "./hooks/useAppData";
 import { ModeToggle } from "./components/ModeToggle";
 import { FusionRow } from "./components/FusionRow";
 import { FusionDetail } from "./components/FusionDetail";
 import { InventoryView } from "./components/InventoryView";
+import { usePins } from "./hooks/usePins";
+import { PinnedTrees } from "./components/PinnedTrees";
+import { pinId } from "./services/pins";
 import { timeAgo } from "./lib/format";
 
 type SortKey = "profit" | "margin";
@@ -28,6 +31,53 @@ export default function App() {
     refresh,
   } = useAppData();
 
+  const pins = usePins(data);
+  const [pinsOpen, setPinsOpen] = useState(false);
+  const drawer = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pinsOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    drawer.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setPinsOpen(false);
+      }
+      if (e.key === "Tab") {
+        const controls = [
+          ...(drawer.current?.querySelectorAll<HTMLElement>("button, input") ??
+            []),
+        ].filter((el) => el.getClientRects().length);
+        const first = controls[0],
+          last = controls.at(-1);
+        if (!drawer.current?.contains(document.activeElement)) {
+          e.preventDefault();
+          first?.focus();
+        } else if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    const desktop = window.matchMedia?.("(min-width: 1024px)");
+    const onResize = () => {
+      if (desktop?.matches) setPinsOpen(false);
+    };
+    desktop?.addEventListener("change", onResize);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      desktop?.removeEventListener("change", onResize);
+      document.body.style.overflow = overflow;
+      previous?.focus();
+    };
+  }, [pinsOpen]);
+  const [quantity, setQuantity] = useState("1");
   const [tab, setTab] = useState<Tab>("browse");
   const [inventory, setInventory] = useState<Record<string, number>>({});
   const [buyMissing, setBuyMissing] = useState(false);
@@ -74,6 +124,26 @@ export default function App() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => {
+              setPinsOpen(false);
+              pins.setVisible(!pins.visible);
+            }}
+            className="hidden rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300 lg:block"
+          >
+            {pins.visible
+              ? "Hide pinned trees"
+              : `Show pinned trees (${pins.pins.length})`}
+          </button>
+          <button
+            onClick={() => {
+              pins.setVisible(true);
+              setPinsOpen(true);
+            }}
+            className="rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300 lg:hidden"
+          >
+            Show pinned trees ({pins.pins.length})
+          </button>
           <ModeToggle mode={mode} onChange={setMode} />
           <button
             onClick={refresh}
@@ -116,151 +186,208 @@ export default function App() {
 
       {loading && !ranked ? (
         <LoadingState />
-      ) : tab === "inventory" ? (
-        data && bazaar ? (
-          <InventoryView
-            data={data}
-            bazaar={bazaar}
-            mode={mode}
-            penalty={penalty}
-            spikes={spikes}
-            dumped={dumped}
-            inventory={inventory}
-            setInventory={setInventory}
-            buyMissing={buyMissing}
-            setBuyMissing={setBuyMissing}
-          />
-        ) : (
-          <LoadingState />
-        )
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[1fr_minmax(460px,580px)]">
-          {/* list */}
-          <main className="min-w-0">
-            {/* controls */}
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search shard…"
-                className="min-w-[140px] flex-1 rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-accent/50 focus:outline-none"
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(380px,580px)]">
+          {tab === "inventory" && data && bazaar ? (
+            <div className="min-w-0">
+              {" "}
+              <InventoryView
+                data={data}
+                bazaar={bazaar}
+                mode={mode}
+                penalty={penalty}
+                spikes={spikes}
+                dumped={dumped}
+                inventory={inventory}
+                setInventory={setInventory}
+                buyMissing={buyMissing}
+                setBuyMissing={setBuyMissing}
               />
-              <div className="inline-flex rounded-xl border border-white/10 bg-ink-900 p-1">
-                {(["profit", "margin"] as SortKey[]).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => setSort(k)}
-                    className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition ${
-                      sort === k
-                        ? "bg-accent text-white"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    {k}
-                  </button>
-                ))}
-              </div>
-              <select
-                value={minDemand}
-                onChange={(e) => setMinDemand(Number(e.target.value))}
-                className="rounded-xl border border-white/10 bg-ink-900 px-2 py-2 text-sm text-slate-300 focus:outline-none"
-                title="Minimum weekly buy demand for the output shard"
-              >
-                <option value={0}>Any demand</option>
-                <option value={1000}>≥ 1k/wk</option>
-                <option value={10000}>≥ 10k/wk</option>
-                <option value={100000}>≥ 100k/wk</option>
-              </select>
-              <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={hideUnprofitable}
-                  onChange={(e) => setHideUnprofitable(e.target.checked)}
-                  className="accent-accent"
-                />
-                Profitable only
-              </label>
-              <label
-                className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-slate-300"
-                title="Flat coin cost added per fusion craft — applies to the whole list and detail (e.g. your time, bazaar tax, or hassle)."
-              >
-                <span className="text-slate-500">⚒ fee/craft</span>
-                <input
-                  type="number"
-                  min={0}
-                  step={1000}
-                  value={penalty}
-                  onChange={(e) =>
-                    setPenalty(Math.max(0, Number(e.target.value) || 0))
-                  }
-                  className="num w-24 rounded-lg border border-white/10 bg-ink-950 px-2 py-1 text-right text-slate-100 focus:border-accent/50 focus:outline-none"
-                />
-              </label>
             </div>
-
-            {/* column header (desktop) */}
-            <div className="mb-1 hidden grid-cols-[28px_minmax(0,1.6fr)_minmax(0,1fr)_repeat(3,minmax(0,0.9fr))] gap-3 px-3 text-[10px] uppercase tracking-wider text-slate-600 sm:grid">
-              <span className="text-right">#</span>
-              <span>Shard</span>
-              <span>Recipe</span>
-              <span className="text-right">Cost</span>
-              <span className="text-right">Profit</span>
-              <span className="text-right">Margin / demand</span>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              {data &&
-                filtered.map((fp, i) => (
-                  <FusionRow
-                    key={fp.target.id}
-                    fp={fp}
-                    data={data}
-                    rank={i + 1}
-                    selected={fp.target.id === selectedId}
-                    spike={spikes[fp.target.internal_id]}
-                    requestHistory={requestHistory}
-                    onSelect={() => {
-                      requestHistory([fp.target.internal_id], 0);
-                      setSelectedId(fp.target.id);
-                    }}
+          ) : (
+            <>
+              {/* list */}
+              <main className="min-w-0">
+                {/* controls */}
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search shard…"
+                    className="min-w-[140px] flex-1 rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-accent/50 focus:outline-none"
                   />
-                ))}
-              {filtered.length === 0 && (
-                <div className="rounded-xl border border-white/5 bg-ink-850/50 px-4 py-10 text-center text-sm text-slate-500">
-                  No fusions match your filters.
+                  <div className="inline-flex rounded-xl border border-white/10 bg-ink-900 p-1">
+                    {(["profit", "margin"] as SortKey[]).map((k) => (
+                      <button
+                        key={k}
+                        onClick={() => setSort(k)}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-medium capitalize transition ${
+                          sort === k
+                            ? "bg-accent text-white"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                  <select
+                    value={minDemand}
+                    onChange={(e) => setMinDemand(Number(e.target.value))}
+                    className="rounded-xl border border-white/10 bg-ink-900 px-2 py-2 text-sm text-slate-300 focus:outline-none"
+                    title="Minimum weekly buy demand for the output shard"
+                  >
+                    <option value={0}>Any demand</option>
+                    <option value={1000}>≥ 1k/wk</option>
+                    <option value={10000}>≥ 10k/wk</option>
+                    <option value={100000}>≥ 100k/wk</option>
+                  </select>
+                  <label className="flex cursor-pointer items-center gap-1.5 rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={hideUnprofitable}
+                      onChange={(e) => setHideUnprofitable(e.target.checked)}
+                      className="accent-accent"
+                    />
+                    Profitable only
+                  </label>
+                  <label
+                    className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-ink-900 px-3 py-2 text-sm text-slate-300"
+                    title="Flat coin cost added per fusion craft — applies to the whole list and detail (e.g. your time, bazaar tax, or hassle)."
+                  >
+                    <span className="text-slate-500">⚒ fee/craft</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1000}
+                      value={penalty}
+                      onChange={(e) =>
+                        setPenalty(Math.max(0, Number(e.target.value) || 0))
+                      }
+                      className="num w-24 rounded-lg border border-white/10 bg-ink-950 px-2 py-1 text-right text-slate-100 focus:border-accent/50 focus:outline-none"
+                    />
+                  </label>
                 </div>
-              )}
-            </div>
 
-            <FooterNote lastUpdated={lastUpdated} />
-          </main>
+                {/* column header (desktop) */}
+                <div className="mb-1 hidden grid-cols-[28px_minmax(0,1.6fr)_minmax(0,1fr)_repeat(3,minmax(0,0.9fr))] gap-3 px-3 text-[10px] uppercase tracking-wider text-slate-600 sm:grid">
+                  <span className="text-right">#</span>
+                  <span>Shard</span>
+                  <span>Recipe</span>
+                  <span className="text-right">Cost</span>
+                  <span className="text-right">Profit</span>
+                  <span className="text-right">Margin / demand</span>
+                </div>
 
-          {/* detail */}
-          <aside
-            className={
-              selected
-                ? "fixed inset-0 z-50 bg-ink-950/95 p-3 backdrop-blur lg:static lg:z-0 lg:bg-transparent lg:p-0"
-                : "hidden lg:block"
-            }
-          >
-            <div className="card h-full overflow-hidden lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)]">
-              {selected && data && bazaar && ranked ? (
-                <FusionDetail
-                  key={`${selected.target.id}:${selected.outputQuantity}`}
-                  fp={selected}
+                <div className="flex flex-col gap-1.5">
+                  {data &&
+                    filtered.map((fp, i) => (
+                      <FusionRow
+                        key={fp.target.id}
+                        fp={fp}
+                        data={data}
+                        rank={i + 1}
+                        selected={fp.target.id === selectedId}
+                        spike={spikes[fp.target.internal_id]}
+                        requestHistory={requestHistory}
+                        onSelect={() => {
+                          requestHistory([fp.target.internal_id], 0);
+                          if (selectedId !== fp.target.id)
+                            setQuantity(String(fp.outputQuantity));
+                          setSelectedId(fp.target.id);
+                        }}
+                      />
+                    ))}
+                  {filtered.length === 0 && (
+                    <div className="rounded-xl border border-white/5 bg-ink-850/50 px-4 py-10 text-center text-sm text-slate-500">
+                      No fusions match your filters.
+                    </div>
+                  )}
+                </div>
+
+                <FooterNote lastUpdated={lastUpdated} />
+              </main>
+            </>
+          )}
+          <aside className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+            {tab === "browse" && (
+              <div
+                className={
+                  selected
+                    ? `${pinsOpen ? "hidden lg:block" : "fixed inset-0 z-50"} overflow-y-auto bg-ink-950 p-3 lg:static lg:z-auto lg:block lg:bg-transparent lg:p-0`
+                    : "hidden lg:block"
+                }
+              >
+                <div className="card overflow-hidden">
+                  {selected && data && bazaar && ranked ? (
+                    <FusionDetail
+                      fp={selected}
+                      data={data}
+                      bazaar={bazaar}
+                      calc={ranked.calc}
+                      quantity={quantity}
+                      setQuantity={setQuantity}
+                      onPin={pins.pin}
+                      pinned={pins.pins.some(
+                        (p) => p.id === pinId(selected.target.id, mode),
+                      )}
+                      mode={mode}
+                      penalty={penalty}
+                      spikes={spikes}
+                      requestHistory={requestHistory}
+                      onClose={() => setSelectedId(null)}
+                    />
+                  ) : (
+                    <Placeholder />
+                  )}
+                  {selected && (
+                    <button
+                      onClick={() => {
+                        pins.setVisible(true);
+                        setPinsOpen(true);
+                      }}
+                      className="m-3 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 lg:hidden"
+                    >
+                      Show pinned trees ({pins.pins.length})
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {data && bazaar && (
+              <div
+                ref={drawer}
+                role={pinsOpen ? "dialog" : undefined}
+                aria-modal={pinsOpen || undefined}
+                aria-label={pinsOpen ? "Pinned trees drawer" : undefined}
+                className={
+                  pinsOpen
+                    ? "fixed inset-0 z-[60] overflow-y-auto bg-ink-950 p-4 lg:static lg:z-auto lg:p-0"
+                    : pins.visible
+                      ? "hidden lg:block"
+                      : "hidden"
+                }
+              >
+                <button
+                  onClick={() => {
+                    setPinsOpen(false);
+                    pins.setVisible(false);
+                  }}
+                  className="mb-4 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 lg:hidden"
+                >
+                  Hide pinned trees
+                </button>
+                <PinnedTrees
+                  pins={pins.pins}
                   data={data}
                   bazaar={bazaar}
-                  calc={ranked.calc}
-                  mode={mode}
-                  penalty={penalty}
                   spikes={spikes}
                   requestHistory={requestHistory}
-                  onClose={() => setSelectedId(null)}
+                  setQuantity={pins.setQuantity}
+                  remove={pins.remove}
                 />
-              ) : (
-                <Placeholder />
-              )}
-            </div>
+              </div>
+            )}
           </aside>
         </div>
       )}
